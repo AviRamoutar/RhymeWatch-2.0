@@ -1,69 +1,62 @@
-import requests
-from bs4 import BeautifulSoup
+# scraper.py  – multi-source headline fetcher
+import os, requests, datetime as dt
+from typing import List, Tuple
+from xml.etree import ElementTree as ET
 
-from datetime import datetime, timedelta
+NEWSAPI_KEY   = os.getenv("NEWSAPI_KEY",   "")       # sign up → newsapi.org
+FINNHUB_KEY   = os.getenv("FINNHUB_KEY",   "")       # sign up → finnhub.io
+USER_AGENT    = {"User-Agent": "Mozilla/5.0"}
 
-# Yahoo Finance Scraper
-def scrape_yahoo_headlines(ticker: str):
-    """Scrape latest news headlines and relative times from Yahoo Finance for the given ticker.
-    Returns a list of (headline, time_str) tuples."""
-    headlines = []
-    # Construct Yahoo Finance URL for the ticker's news section
-    # Example: https://finance.yahoo.com/quote/AAPL?p=AAPL (the news is included on the quote page)
-    url = f"https://finance.yahoo.com/quote/{ticker}?p={ticker}"
+def _newsapi(ticker:str, start:dt.date, end:dt.date) -> List[Tuple[str, dt.datetime]]:
+    """Query NewsAPI /v2/everything (needs key)."""
+    if not NEWSAPI_KEY: return []
+    url = ("https://newsapi.org/v2/everything?q="
+           f"{ticker}&from={start}&to={end}&language=en&pageSize=100&sortBy=publishedAt&apiKey={NEWSAPI_KEY}")
     try:
-        # Use a realistic User-Agent to avoid blocking
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return headlines
-        soup = BeautifulSoup(response.text, "html.parser")
-        # Yahoo Finance news items: find div that has an h3 tag with a link (<h3><a>...headline...</a></h3>)
-        news_items = soup.select('div:has(>h3>a)')
-        for item in news_items:
-            # Headline text
-            h3 = item.find('h3')
-            if h3 and h3.text:
-                title = h3.text.strip()
-            else:
-                continue
-            # Time/source info might be in a sibling span or small tag
-            # Yahoo Finance typically has something like: <span class="C(#959595) Fz(11px) ...">Source • X hours ago</span>
-            time_span = item.find('span')
-            time_text = time_span.text.strip() if time_span else ""
-            headlines.append((title, time_text))
+        js = requests.get(url, timeout=10).json()
+        return [(a["title"], dt.datetime.fromisoformat(a["publishedAt"].replace("Z","")))
+                for a in js.get("articles", [])]
     except Exception as e:
-        print(f"Error scraping Yahoo Finance: {e}")
-    return headlines
+        print("[NewsAPI]", e); return []
 
-# MarketWatch Scraper
-def scrape_marketwatch_headlines(ticker: str):
-    """Scrape latest news headlines and times from MarketWatch for the given ticker.
-    Returns a list of (headline, time_str) tuples."""
-    headlines = []
-    # MarketWatch search URL: We'll use MarketWatch's search to find articles for the ticker
-    # This uses the MarketWatch search query for the ticker symbol.
-    query_url = f"https://www.marketwatch.com/search?q={ticker}"
+def _finnhub(ticker:str, start:dt.date, end:dt.date) -> List[Tuple[str, dt.datetime]]:
+    """Finnhub company-news endpoint (needs key)."""
+    if not FINNHUB_KEY: return []
+    url = (f"https://finnhub.io/api/v1/company-news?symbol={ticker}"
+           f"&from={start}&to={end}&token={FINNHUB_KEY}")
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(query_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return headlines
-        soup = BeautifulSoup(response.text, "html.parser")
-        # In MarketWatch search results, articles are in <div class="searchresult"> (if search returns news)
-        results = soup.find_all("div", class_="searchresult")
-        for res in results:
-            # Each result might have a headline and a date/time
-            title_tag = res.find("a", class_="link")  # 'a.link' contains the headline text in some MW pages
-            time_tag = res.find("span", class_="published-date")  # possibly the time info
-            if not title_tag:
-                continue
-            title = title_tag.text.strip()
-            # Get time text if available; MarketWatch might show absolute date/time like "Jan 5, 2025 10:00 AM ET"
-            time_text = ""
-            if time_tag:
-                time_text = time_tag.text.strip()
-            headlines.append((title, time_text))
+        js = requests.get(url, timeout=10).json()
+        return [(art["headline"], dt.datetime.fromtimestamp(art["datetime"])) for art in js]
     except Exception as e:
-        print(f"Error scraping MarketWatch: {e}")
-    return headlines
+        print("[Finnhub]", e); return []
+
+def _googlerss(ticker:str, days:int=7) -> List[Tuple[str, dt.datetime]]:
+    """Google News RSS fallback (no key, limited to ~10-20 items)."""
+    url = ( "https://news.google.com/rss/search?q="
+            f"{ticker}+stock+when:{days}d&hl=en-US&gl=US&ceid=US:en")
+    try:
+        xml = requests.get(url, headers=USER_AGENT, timeout=10).text
+        root = ET.fromstring(xml)
+        items = root.findall(".//item")
+        out=[]
+        for it in items:
+            title = it.find("title").text
+            pub  = it.find("pubDate").text     # e.g. 'Fri, 05 Jul 2024 14:30:00 GMT'
+            pub_dt = dt.datetime.strptime(pub, "%a, %d %b %Y %H:%M:%S %Z")
+            out.append((title, pub_dt))
+        return out
+    except Exception as e:
+        print("[GoogleRSS]", e); return []
+
+# ---------- public API ----------
+def get_headlines(ticker:str,
+                  start_date:dt.datetime,
+                  end_date:dt.datetime) -> List[Tuple[str, dt.datetime]]:
+    """Returns list[(headline, datetime)] pulled from NewsAPI → Finnhub → GoogleRSS."""
+    print(f"Fetching headlines for {ticker}  {start_date.date()} → {end_date.date()}")
+    for fetch in (_newsapi, _finnhub):
+        res = fetch(ticker, start_date.date(), end_date.date())
+        if res: return res
+    # google fallback uses relative window (days); pass span length
+    span = max(1, (end_date.date() - start_date.date()).days)
+    return _googlerss(ticker, days=min(span, 30))     # Google caps at 30d
