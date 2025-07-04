@@ -1,36 +1,57 @@
 from datetime import datetime, timedelta, date
+import re
 
 def parse_relative_date(time_str: str):
-    """Parse a time string (relative like '3 hours ago', 'Yesterday', or absolute date) into a date object.
-    Returns a datetime.date object or None if unrecognized."""
+
     if not time_str:
         return None
-    text = time_str.lower()
+
+    txt = time_str.strip().lower()
     today = date.today()
-    if "hour ago" in text or "hours ago" in text or "minutes ago" in text or "min ago" in text:
-        # Anything referring to today (hours/minutes ago -> treat as today)
-        return today
-    if "yesterday" in text:
-        return today - timedelta(days=1)
-    # Absolute date format examples (MarketWatch might have):
-    # e.g. "Jan 5, 2025", or "Jan 5, 2025 10:00 a.m. ET" -> we parse just the date part
-    try:
-        # Try common date formats
-        # Remove trailing time or timezone if present
-        comma_parts = time_str.split(',')
-        if len(comma_parts) >= 2:
-            # Likely format like "Jan 5, 2025 ..."
-            date_part = comma_parts[0] + ',' + comma_parts[1]
-        else:
-            date_part = time_str
-        # Try parsing
-        parsed = datetime.strptime(date_part.strip(), "%b %d, %Y")
-        return parsed.date()
-    except Exception:
+
+
+
+    # ---------- ISO 8601 (YYYY-MM-DD) ----------
+    iso_match = re.match(r"\d{4}-\d{2}-\d{2}", txt)
+    if iso_match:
         try:
-            # Try without year (maybe the string was "Jan 5" without year)
-            parsed = datetime.strptime(time_str.strip(), "%b %d")
-            # If parsed without year, assign current year
-            return parsed.replace(year=today.year).date()
+            return datetime.strptime(iso_match.group(), "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+
+
+
+
+    # ---------- relative phrases ----------
+    if any(word in txt for word in ("hour", "hours", "minute", "minutes", "just now")):
+        return today
+    if "yesterday" in txt:
+        return today - timedelta(days=1)
+    if "day ago" in txt or "days ago" in txt:
+        try:
+            n = int(txt.split()[0])
+            return today - timedelta(days=n)
         except Exception:
-            return None
+            pass
+
+
+
+
+    # ---------- absolute long / short month ----------
+    for fmt in ("%b %d, %Y", "%B %d, %Y"):
+        try:
+            return datetime.strptime(time_str, fmt).date()
+        except ValueError:
+            continue
+
+
+
+
+
+    # ---------- fallback: 'Jan 5' => assume current year ----------
+    try:
+        d = datetime.strptime(time_str, "%b %d")
+        return d.replace(year=today.year).date()
+    except Exception:
+        return None

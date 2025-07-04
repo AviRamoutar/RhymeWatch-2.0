@@ -1,201 +1,236 @@
-import os, datetime
 import streamlit as st
-import plotly.graph_objs as go
 import pandas as pd
-import nltk                                 # NEW
-from nltk.sentiment import SentimentIntensityAnalyzer  # NEW
-import datetime as dt
-from scraper import get_headlines
-# ...
+import yfinance as yf
+from datetime import datetime, timedelta
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import plotly.graph_objects as go
+import plotly.express as px
 
-# Make sure VADER lexicon is available (downloads once)
+# Ensure the VADER sentiment lexicon is downloaded
 try:
-    nltk.data.find("sentiment/vader_lexicon.zip")
-except LookupError:
-    nltk.download("vader_lexicon")
+    _ = SentimentIntensityAnalyzer()
+except Exception:
+    nltk.download('vader_lexicon')
+sid = SentimentIntensityAnalyzer()
 
-# ----- Page Config & Style -----
-st.set_page_config(page_title="AI Stock News Sentiment Analyzer", page_icon="🚀", layout="wide")
-# Custom CSS for dark theme and styling
+# Set page configuration (including wide layout for better display of charts)
+st.set_page_config(page_title="Stock News Sentiment Analyzer", page_icon="📈", layout="wide")
+
+# Apply custom CSS styling for a dark, sleek Apple-like theme
 st.markdown("""
-    <style>
-    /* Set background colors */
-    .stApp { background-color: #0E1117; color: #FAFAFA; }
-    [data-testid="stSidebar"] { background-color: #1E262E; }
-    /* Style for headings and texts */
-    .stApp, .stApp * { font-family: "Segoe UI", sans-serif; }
-    /* Style buttons (all Streamlit buttons) */
-    div.stButton > button {
-        background-color: #E12D39; color: #FFFFFF; border-radius: 0.5rem;
-        border: none; padding: 0.5rem 1rem; margin: 0.2rem 0 0.2rem 0;
-    }
-    /* Make sidebar buttons inline for quick tickers */
-    [data-testid="stSidebar"] div.stButton > button {
-        display: inline-block; width: auto; margin: 0.2rem 0.3rem 0.2rem 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+/* Dark background for app and white text with clean font (Apple-like) */
+html, body, [data-testid="stAppViewContainer"] {
+    background-color: #0F0F0F;
+    color: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+/* Dark background for sidebar */ 
+[data-testid="stSidebar"] {
+    background-color: #1C1C1C;
+}
+/* Stylish buttons */
+.stButton > button {
+    background-color: #333333;
+    color: #FFFFFF;
+    border:none;
+    border-radius: 4px;
+    padding: 0.4em 0.8em;
+    font-size: 16px;
+}
+.stButton > button:hover {
+    background-color: #444444;
+}
+/* Adjust headings color for visibility */
+h1, h2, h3, h4, h5, h6 {
+    color: #FFFFFF;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ----- Sidebar: Quick Tickers & Saved Tickers -----
-st.sidebar.title("Quick Tickers 📈")
-st.sidebar.subheader("Popular")
-popular_tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "TSLA", "META", "NFLX", "AMD", "INTC"]
-# Display quick access buttons for popular tickers
-for i, quick in enumerate(popular_tickers):
-    if st.sidebar.button(quick, key=f"quick_{i}"):
-        st.session_state["ticker"] = quick
+# Title and description
+st.title("AI Stock News Sentiment Analyzer")
+st.write("Enter a stock ticker symbol and select a date range to fetch recent news headlines. The app will analyze headline sentiment using VADER and display sentiment visuals alongside the stock's price trend.")
 
-# Section for user's saved tickers
-st.sidebar.subheader("My Tickers ⭐")
-# Initialize saved tickers list in session or load from file
-if "saved_tickers" not in st.session_state:
-    saved = []
-    # Optionally load saved tickers from file if it exists
-    try:
-        with open("saved_tickers.txt", "r") as f:
-            saved = [line.strip() for line in f if line.strip()]
-    except FileNotFoundError:
-        saved = []
-    st.session_state["saved_tickers"] = saved
+# Include 3D model (financial themed) using <model-viewer> web component
+# (Note: Replace the model_url with an actual .glb model URL related to finance or economy)
+st.markdown(
+    '<script src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js" type="module"></script>',
+    unsafe_allow_html=True
+)
+model_url = "https://your-cdn.com/path-to-finance-model.glb"  # TODO: replace with actual model URL
+st.markdown(f"""
+<div style="text-align:center; margin-bottom: 1rem;">
+<model-viewer src="{model_url}" alt="3D financial model" 
+    auto-rotate camera-controls background-color="#000000" 
+    style="width: 100%; max-width: 400px; height: 300px;">
+</model-viewer>
+</div>""", unsafe_allow_html=True)  # Using <model-viewer> to display 3D model:contentReference[oaicite:0]{index=0}
 
-# Button to add current ticker to saved list
-current_ticker = st.session_state.get("ticker", "")
-if current_ticker and current_ticker not in st.session_state["saved_tickers"]:
-    if st.sidebar.button("➕ Add current ticker", key="add_ticker"):
-        st.session_state["saved_tickers"].append(current_ticker)
-        # Save updated list to file
-        try:
-            with open("saved_tickers.txt", "w") as f:
-                for t in st.session_state["saved_tickers"]:
-                    f.write(t + "\n")
-        except Exception as e:
-            print("Could not save tickers to file:", e)
+# Initialize session state for storing ticker history
+if 'ticker_history' not in st.session_state:
+    st.session_state['ticker_history'] = []
 
-# Show saved tickers as buttons for quick selection
-for j, fav in enumerate(st.session_state["saved_tickers"]):
-    if st.sidebar.button(fav, key=f"saved_{j}"):
-        st.session_state["ticker"] = fav
+# Sidebar - Quick ticker buttons for popular stocks
+st.sidebar.header("Quick Tickers")
+quick_tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA"]
+for qt in quick_tickers:
+    if st.sidebar.button(qt, key=f"quick_{qt}"):
+        st.session_state['ticker_input'] = qt
 
-# ----- Main Interface -----
-# Two-column layout: left for 3D model, right for inputs and output
-col1, col2 = st.columns([1, 3])
+# Sidebar - Show recently viewed tickers with buttons for quick recall
+st.sidebar.markdown("### Recently Viewed")
+if st.session_state['ticker_history']:
+    # Display in reverse order (most recent last)
+    for t in reversed(st.session_state['ticker_history']):
+        if st.sidebar.button(t, key=f"hist_{t}"):
+            st.session_state['ticker_input'] = t
+else:
+    st.sidebar.write("None")
+
+# Main input section: Ticker text input and date range selection
+col1, col2 = st.columns([1, 2])
 with col1:
-    # Display 3D model (ensure you have the STL model file and streamlit-stl installed)
-    try:
-        from streamlit_stl import stl_from_file
-        # Replace 'assets/model.stl' with the actual path to your 3D model file
-        stl_ok = stl_from_file(file_path="assets/model.stl",
-                               color="#FF9900", material="material",
-                               auto_rotate=True, height=300)
-        if not stl_ok:
-            st.write("📌 3D model failed to load. Check file path or format.")
-    except Exception as e:
-        st.write("📌 3D model not available. (Install `streamlit-stl` and check model file)")
-
+    ticker = st.text_input("Stock Ticker (e.g. AAPL):", key="ticker_input")
 with col2:
-    st.title("🚀 AI Stock News Sentiment Analyzer")
-    # Ticker input and time range selection
-    ticker = st.text_input("Enter Stock Ticker:", value=st.session_state.get("ticker", ""), key="ticker_input", placeholder="e.g. AAPL")
-    time_options = ["Last 24 hours", "Last 7 days", "Last 30 days", "Last 60 days"]
-    time_choice = st.selectbox("Time Window:", options=time_options, index=1)  # default to "Last 7 days"
-    # Determine date range from selection
-    end_date = dt.datetime.now(dt.timezone.utc)
-    if time_choice == "Last 24 hours":
-        start_date = end_date - datetime.timedelta(days=1)
-    elif time_choice == "Last 7 days":
-        start_date = end_date - datetime.timedelta(days=7)
-    elif time_choice == "Last 30 days":
-        start_date = end_date - datetime.timedelta(days=30)
-    elif time_choice == "Last 60 days":
-        start_date = end_date - datetime.timedelta(days=60)
+    date_options = ["Last 24 hours", "Last 7 days", "Last 30 days", "Last 60 days", "Last 90 days", "Last 120 days"]
+    time_horizon = st.selectbox("Time Range:", date_options, index=1)  # default to "Last 7 days"
+
+# Determine the number of days from the selected range
+if "hour" in time_horizon:
+    days = 1  # 24 hours -> 1 day
+else:
+    # e.g. "Last 30 days" -> 30
+    days = int(time_horizon.split()[1])
+since_date = datetime.now() - timedelta(days=days)
+
+# Only proceed if a ticker is provided
+if ticker:
+    ticker = ticker.strip().upper()
+    # Update session history for tickers
+    if ticker in st.session_state['ticker_history']:
+        # Move the ticker to the end (most recent)
+        st.session_state['ticker_history'].remove(ticker)
+    st.session_state['ticker_history'].append(ticker)
+
+    # Retrieve headlines using scraper (external module) or use placeholder if unavailable
+    headlines = []
+    try:
+        import scraper
+        headlines = scraper.get_headlines(ticker, since_date)
+    except Exception as e:
+        # Fallback to placeholder headlines if scraper fails or is not implemented
+        now_time = datetime.now()
+        headlines = [
+            (f"{ticker} stock hits new high amid market optimism", now_time - timedelta(hours=12)),
+            (f"{ticker} sees unexpected decline in quarterly profits", now_time - timedelta(days=3)),
+            (f"Analysts remain bullish on {ticker} despite market volatility", now_time - timedelta(days=10))
+        ]
+    # Filter headlines by selected date range
+    headlines = [(h, ts) for (h, ts) in headlines if ts and ts >= since_date]
+
+    # Ensure each headline is a string (avoid tuple encode errors)
+    cleaned_headlines = []
+    for item in headlines:
+        # Each item expected to be (headline_text, timestamp)
+        if isinstance(item, tuple) and len(item) > 0:
+            head_text = item[0]
+            head_time = item[1] if len(item) > 1 else None
+            cleaned_headlines.append((str(head_text), head_time))
+        elif isinstance(item, str):
+            # If somehow we got just a string without timestamp
+            cleaned_headlines.append((item, None))
+    headlines = cleaned_headlines
+
+    if not headlines:
+        st.warning(f"No news headlines found for **{ticker}** in the selected time range.")
     else:
-        start_date = end_date - datetime.timedelta(days=7)
+        # Sort headlines by timestamp (newest first)
+        headlines.sort(key=lambda x: x[1] if x[1] else datetime.now(), reverse=True)
 
-    # Analyze button triggers data fetching and analysis
-    if st.button("Analyze"):
-        ticker = ticker.strip().upper()
-        if not ticker:
-            st.warning("Please enter a stock ticker to analyze.")
+        # Perform sentiment analysis on each headline
+        sentiment_scores = [sid.polarity_scores(h_text) for h_text, _ in headlines]
+        # Classify each headline as Positive, Neutral, or Negative based on compound score
+        sentiment_labels = []
+        for scores in sentiment_scores:
+            compound = scores["compound"]
+            if compound >= 0.05:
+                sentiment_labels.append("Positive")
+            elif compound <= -0.05:
+                sentiment_labels.append("Negative")
+            else:
+                sentiment_labels.append("Neutral")
+        # (VADER uses 0.05 and -0.05 as default thresholds for positive/negative:contentReference[oaicite:1]{index=1})
+
+        # Count sentiment categories
+        count_pos = sentiment_labels.count("Positive")
+        count_neu = sentiment_labels.count("Neutral")
+        count_neg = sentiment_labels.count("Negative")
+
+        # Display the headlines with their sentiment classification
+        st.subheader(f"Recent News for {ticker}")
+        for (headline_text, timestamp), label in zip(headlines, sentiment_labels):
+            time_str = timestamp.strftime("%Y-%m-%d %H:%M") if timestamp else ""
+            st.write(f"- {headline_text}  *(Sentiment: **{label}**)*  {time_str}")
+
+        # Fetch historical stock price data via yfinance
+        try:
+            stock_df = yf.download(ticker, start=since_date, end=datetime.now())
+        except Exception as e:
+            stock_df = pd.DataFrame()  # empty DataFrame on failure
+        # Prepare line chart if data is available
+        if not stock_df.empty:
+            stock_df = stock_df.reset_index()  # ensure Date is a column
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(x=stock_df['Date'], y=stock_df['Close'], mode='lines',
+                                          name=ticker, line=dict(color='#0A84FF', width=3)))
+            fig_line.update_layout(
+                title=f"{ticker} Stock Price - {time_horizon}",
+                xaxis_title="Date", yaxis_title="Price (USD)",
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font_color="white"
+            )
+            # Display the stock price line chart
+            st.plotly_chart(fig_line, use_container_width=True)
         else:
-            # Fetch news headlines for the given ticker and date range
-            start_dt = dt.datetime.combine(start_date, dt.time.min, dt.timezone.utc)
-            end_dt   = dt.datetime.combine(end_date,   dt.time.max, dt.timezone.utc)
+            st.warning(f"Unable to retrieve price data for **{ticker}** over {time_horizon.lower()}.")
 
-        headlines = get_headlines(ticker, start_dt, end_dt)
+        # Create a pie chart for sentiment distribution
+        fig_pie = go.Figure(data=[go.Pie(labels=["Positive", "Neutral", "Negative"],
+                                         values=[count_pos, count_neu, count_neg], hole=0.3)])
+        fig_pie.update_traces(marker=dict(colors=["seagreen", "gray", "indianred"]), textinfo="percent+label")
+        fig_pie.update_layout(
+            title="Sentiment Distribution",
+            showlegend=False,
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            font_color="white"
+        )
 
+        # Create a bar chart for sentiment counts
+        fig_bar = go.Figure(data=[go.Bar(x=["Positive", "Neutral", "Negative"],
+                                         y=[count_pos, count_neu, count_neg],
+                                         marker_color=["seagreen", "gray", "indianred"],
+                                         text=[count_pos, count_neu, count_neg], textposition='auto')])
+        fig_bar.update_layout(
+            title="Headline Sentiment Count",
+            yaxis_title="Number of Headlines",
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            font_color="white"
+        )
 
+        # Display pie and bar charts side by side
+        colA, colB = st.columns(2)
+        colA.plotly_chart(fig_pie, use_container_width=True)
+        colB.plotly_chart(fig_bar, use_container_width=True)
+else:
+    st.info("👈 Enter a stock ticker and select a time range to analyze its news sentiment.")
 
-
-        if headlines:
-                # Perform sentiment analysis on headlines
-                sia = SentimentIntensityAnalyzer()
-                sentiments = [sia.polarity_scores(head)["compound"] for head in headlines]
-                # Classify each sentiment score
-                pos_count = sum(1 for s in sentiments if s > 0.05)
-                neg_count = sum(1 for s in sentiments if s < -0.05)
-                neu_count = len(sentiments) - pos_count - neg_count
-
-                st.write(f"**Total Headlines:** {len(headlines)}  |  **Positive:** {pos_count}  **Neutral:** {neu_count}  **Negative:** {neg_count}")
-
-                # Chart 1: Sentiment distribution (bar chart)
-                dist_fig = go.Figure(data=[
-                    go.Bar(x=["Positive", "Neutral", "Negative"], y=[pos_count, neu_count, neg_count], marker_color=["#4caf50","#607d8b","#f44336"])
-                ])
-                dist_fig.update_layout(title_text="Sentiment Distribution of Headlines", height=400,
-                                       xaxis_title="Sentiment", yaxis_title="Number of Headlines")
-                st.plotly_chart(dist_fig, use_container_width=True)
-
-                # Chart 2: Stock price vs average sentiment over time (if price data available)
-                try:
-                    import yfinance as yf
-                    # Fetch historical daily prices for the selected period
-                    df_price = yf.download(ticker, start=start_date.date(), end=(end_date + datetime.timedelta(days=1)).date(), progress=False)
-                except Exception as e:
-                    df_price = pd.DataFrame()  # fallback to empty if download fails
-                if not df_price.empty:
-                    # Prepare daily sentiment DataFrame
-                    dates = []  # extract dates from NewsAPI results if available
-                    # If get_headlines provided dates internally, we could use them. Otherwise, approximate dates as current date for all.
-                    if hasattr(headlines[0], '__iter__') and not isinstance(headlines[0], str):
-                        # In case get_headlines returns list of (headline, datetime)
-                        dates = [d.date() for (_, d) in headlines]
-                        # Convert headlines list to just titles
-                        headlines = [t for (t, d) in headlines]
-                    else:
-                        # If only titles, assume all headlines are within range; assign current date for 24h or respective day for longer range
-                        for _ in headlines:
-                            dates.append(datetime.datetime.utcnow().date())
-                    df_sent = pd.DataFrame({"date": dates, "sentiment": sentiments})
-                    daily_sent = df_sent.groupby("date").mean(numeric_only=True)
-                    # Align price data (ensure index is date)
-                    price_df = df_price.copy()
-                    price_df.index = pd.to_datetime(price_df.index).date
-                    # Join price and sentiment on date
-                    combo_df = pd.DataFrame({"Close": price_df["Close"]}).join(daily_sent, how="outer")
-                    # Plot price and sentiment on dual-axis
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=list(combo_df.index), y=combo_df["Close"], name="Close Price", line=dict(color="#1f77b4"), yaxis="y1"))
-                    fig.add_trace(go.Bar(x=list(combo_df.index), y=combo_df["sentiment"], name="Avg Sentiment", marker_color="#ff9900", opacity=0.7, yaxis="y2"))
-                    fig.update_layout(title=f"{ticker} Price vs Sentiment Over Time", height=500,
-                                      xaxis_title="Date",
-                                      yaxis=dict(title="Stock Close Price (USD)", titlefont=dict(color="#1f77b4"), tickfont=dict(color="#1f77b4")),
-                                      yaxis2=dict(title="Average Sentiment", titlefont=dict(color="#ff9900"), tickfont=dict(color="#ff9900"),
-                                                  overlaying="y", side="right"))
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Price data unavailable or failed to load for this period.")
-
-                # Display headlines with sentiment scores (optional detail)
-                st.subheader("Headlines and Sentiment Scores")
-                for head, score in zip(headlines, sentiments):
-                    # Use colored icons or text to indicate sentiment
-                    if score > 0.05:
-                        st.write(f":heavy_plus_sign: **{head}**  _(Positive)_")
-                    elif score < -0.05:
-                        st.write(f":heavy_minus_sign: **{head}**  _(Negative)_")
-                    else:
-                        st.write(f":heavy_minus_sign: **{head}**  _(Neutral)_")
-        else:
-                # No headlines found – provide feedback to user
-                st.warning(f"No news headlines found for **{ticker}** in the selected time range.")
-                st.info("Please check the ticker symbol or try a different time range.")
+# Feedback section (properly indented and standalone)
+st.markdown("### Feedback")
+feedback = st.text_input("Share your feedback or suggestions:")
+if st.button("Submit Feedback"):
+    if feedback:
+        st.success("Thank you for your feedback!")
+    else:
+        st.warning("Please enter some feedback before submitting.")

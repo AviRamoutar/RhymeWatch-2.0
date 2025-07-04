@@ -7,3 +7,5 @@ scikit-learn==1.4.2
 plotly==5.20.0
 transformers==4.40.2   # pulls a matching tokenizers automatically
 torch==2.2.1
+nltk==3.8.1
+streamlit-stl==0.0.6

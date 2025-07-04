@@ -1,0 +1,16 @@
+venv/
+.env/
+.venv/
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.manifest
+*.spec
+.env.*
+.env
+.idea/
+scraper.py
