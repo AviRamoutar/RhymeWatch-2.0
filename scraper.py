@@ -2,10 +2,21 @@
 import os, requests, datetime as dt
 from typing import List, Tuple
 from xml.etree import ElementTree as ET
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=Path(__file__).with_name("PersonalKeys.env"), override=False)
 
+
+
+
+#Parameters are Your key and an optional default key option incase first is not found
 NEWSAPI_KEY   = os.getenv("NEWSAPI_KEY",   "")       # sign up → newsapi.org
 FINNHUB_KEY   = os.getenv("FINNHUB_KEY",   "")       # sign up → finnhub.io
+
+#Simply
 USER_AGENT    = {"User-Agent": "Mozilla/5.0"}
+
+
 
 def _newsapi(ticker:str, start:dt.date, end:dt.date) -> List[Tuple[str, dt.datetime]]:
     """Query NewsAPI /v2/everything (needs key)."""
