@@ -1,8 +1,8 @@
-import streamlit as st
+
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 
 # Cache the model loading so it doesn't re-run on every interaction
-@st.cache_resource
+
 def load_sentiment_model():
     # Load FinBERT model and tokenizer from Hugging Face
     tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
