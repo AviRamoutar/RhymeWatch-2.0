@@ -1,44 +1,41 @@
-RhymeWatch
-LLM powered stock sentiment analysis and price prediction platform
+RhymeWatch LLM "powered" stock sentiment analysis and price prediction platform. Just this repo for now going live soon!!!
 
-Overview
-RhymeWatch analyzes financial news sentiment using advanced natural language processing to help investors make informed decisions. The platform combines real-time news data with machine learning models to predict short-term stock movements and provide investment recommendations.
-Built with React for the frontend and FastAPI for the backend, 
-Sentiment Analysis
-Real-time analysis of financial news headlines using the FinBERT model specifically trained on financial text data.
-Investment Recommendations
-Automated buy, hold, or avoid recommendations based on aggregated sentiment scores from multiple news sources.
-Price Prediction
-Machine learning models predict next-day price movements using historical data and sentiment indicators.
-Multi-Source Data
-Integrates with NewsAPI, Finnhub, and Google RSS to ensure comprehensive news coverage.
-Flexible Time Ranges
-Analyze sentiment trends across different periods from one month to five years.
-Modern Interface
-Clean, intuitive design optimized for both desktop and mobile devices.
-Technology Stack
+RhymeWatch is a full stack application that analyzes stock sentiment using AI and predicts price movements. The React frontend communicates with a FastAPI backend that ethically scrapes financial news, analyzes sentiment with FinBERT model to make predictions.
 
-Frontend
+ML tools (Pretrained) FinBERT for sentiment classification Random Forest for price prediction scikit-learn for model training
 
-React 18 
-CSS3 
-Responsive design principles
+FILE STRUCTURE
 
-Backend
+FRONTEND (React 18, CSS3 , Responsive design principles)
+App.js - Main React component handling user interface, stock input, API calls, and results display
 
-FastAPI endpoints
-Python 3.8+ with  computing libraries
-REST architecture
+App.css - Styling for the entire application with dark theme, responsive design, and component layouts
 
-Machine Learning
+index.js - React entry point that mounts the App component to the DOM
 
-FinBERT for sentiment classification
-Random Forest for price prediction
-scikit-learn for model training
+index.css - Global CSS styles for body, fonts, and base styling
 
-Data Sources
+package.json - Lists React dependencies and build scripts needed for the frontend
 
-yfinance for historical stock data
-NewsAPI for current headlines
-Finnhub for company specific news
-Google RSS as fallback source
+package-lock.json - Records exact versions of installed packages for consistent deployments (Honeslty for my own cloning/pulling ease across devices)
+
+BACKEND (FastAPI endpoints, Python 3.8 or up, REST architecture)
+app.py - FastAPI server with API endpoints, CORS configuration, and main analysis logic coordination
+
+scraper.py - Fetches financial news headlines from NewsAPI, Finnhub, and Google RSS sources
+
+sentiment.py - Loads FinBERT model and classifies headlines as positive, neutral, or negative
+
+predictor.py - Trains Random Forest model and predicts next-day stock price movement direction
+
+utils.py - Shared utility functions for data processing and helper operations
+
+CONFIG
+.env - Stores API keys for NewsAPI and Finnhub services securely
+
+.gitignore - Excludes sensitive files and large dependencies from version control
+
+requirements.txt - Lists Python packages needed for backend functionality
+
+DATA SOURCES (Adding more next Update)
+yahoofinance for historical stock data NewsAPI for current headlines Finnhub for company specific news Google RSS as fallback source
