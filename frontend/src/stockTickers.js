@@ -1,21 +1,8 @@
-// Create this file: frontend/src/stockTickers.js
-
-// Export function to load stock tickers
+//
 export const loadStockTickers = async () => {
-    try {
-        const response = await fetch('/stockTickers.json');
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Failed to load stock tickers:', error);
-        return DEFAULT_TICKERS;
-    }
+    return DEFAULT_TICKERS;
 };
 
-// Sample of stock tickers - for the full 5,497 list, you'll need to:
-// 1. Create a file called stockTickers.json in your frontend/public folder
-// 2. Get the full list from a financial API or dataset
-// 3. Format it as shown below
 
 export const DEFAULT_TICKERS = [
     { symbol: 'A', name: 'Agilent Technologies Inc.' },
@@ -523,46 +510,3 @@ export const DEFAULT_TICKERS = [
     { symbol: 'ZION', name: 'Zions Bancorporation N.A.' },
     { symbol: 'ZTS', name: 'Zoetis Inc.' }
 ];
-
-// Updated App.js integration
-// In your App.js, replace the STOCK_TICKERS constant at the top with:
-// import { DEFAULT_TICKERS, loadStockTickers } from './stockTickers';
-
-// Then update your App component to load tickers:
-/*
-function App() {
-  const [stockSymbol, setStockSymbol] = useState('');
-  const [timeRange, setTimeRange] = useState('6 Months');
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(null);
-  const [error, setError] = useState(null);
-  const [allTickers, setAllTickers] = useState(DEFAULT_TICKERS);
-
-  // Load stock tickers on component mount
-  useEffect(() => {
-    loadStockTickers().then(tickers => {
-      setAllTickers(tickers);
-    });
-  }, []);
-
-  // Then pass allTickers to StockSidebar:
-  // <StockSidebar onSelectStock={handleStockSelect} selectedStock={stockSymbol} tickers={allTickers} />
-}
-*/
-
-// For the full 5,497 tickers, create a file: frontend/public/stockTickers.json
-// with this format:
-/*
-[
-  {"symbol": "A", "name": "Agilent Technologies Inc."},
-  {"symbol": "AA", "name": "Alcoa Corporation"},
-  ... all 5,497 tickers ...
-]
-*/
-
-// You can get the full list from:
-// 1. Yahoo Finance API
-// 2. Alpha Vantage API
-// 3. IEX Cloud
-// 4. Financial data providers
-// 5. SEC EDGAR database

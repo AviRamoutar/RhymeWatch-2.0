@@ -1,43 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-
-// Stock ticker data - replace this with your full 5,497 list
-const STOCK_TICKERS = [
-    { symbol: 'AAPL', name: 'Apple Inc.' },
-    { symbol: 'GOOGL', name: 'Alphabet Inc.' },
-    { symbol: 'MSFT', name: 'Microsoft Corporation' },
-    { symbol: 'AMZN', name: 'Amazon.com Inc.' },
-    { symbol: 'TSLA', name: 'Tesla Inc.' },
-    { symbol: 'META', name: 'Meta Platforms Inc.' },
-    { symbol: 'NVDA', name: 'NVIDIA Corporation' },
-    { symbol: 'JPM', name: 'JPMorgan Chase & Co.' },
-    { symbol: 'V', name: 'Visa Inc.' },
-    { symbol: 'WMT', name: 'Walmart Inc.' },
-    { symbol: 'BAC', name: 'Bank of America Corp.' },
-    { symbol: 'DIS', name: 'Walt Disney Co.' },
-    { symbol: 'NFLX', name: 'Netflix Inc.' },
-    { symbol: 'ADBE', name: 'Adobe Inc.' },
-    { symbol: 'CRM', name: 'Salesforce Inc.' },
-    { symbol: 'PYPL', name: 'PayPal Holdings Inc.' },
-    { symbol: 'INTC', name: 'Intel Corporation' },
-    { symbol: 'CSCO', name: 'Cisco Systems Inc.' },
-    { symbol: 'PFE', name: 'Pfizer Inc.' },
-    { symbol: 'KO', name: 'Coca-Cola Co.' },
-    // Add all 5,497 tickers here
-];
+import { DEFAULT_TICKERS, loadStockTickers } from './stockTickers';
 
 // Stock Sidebar Component
 const StockSidebar = ({ onSelectStock, selectedStock }) => {
     const [searchTerm, setSearchTerm] = useState('');
-    const [filteredStocks, setFilteredStocks] = useState(STOCK_TICKERS);
+    const [allTickers, setAllTickers] = useState(DEFAULT_TICKERS);
+    const [filteredStocks, setFilteredStocks] = useState(DEFAULT_TICKERS);
 
+    // Load tickers on mount
     useEffect(() => {
-        const filtered = STOCK_TICKERS.filter(stock =>
+        loadStockTickers().then(tickers => {
+            setAllTickers(tickers);
+            setFilteredStocks(tickers);
+        });
+    }, []);
+
+    // Filter stocks when search term changes
+    useEffect(() => {
+        const filtered = allTickers.filter(stock =>
             stock.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
             stock.name.toLowerCase().includes(searchTerm.toLowerCase())
         );
         setFilteredStocks(filtered);
-    }, [searchTerm]);
+    }, [searchTerm, allTickers]);
 
     return (
         <div className="stock-sidebar">
@@ -96,7 +82,9 @@ function App() {
             };
             const days = daysMap[timeRange] || 60;
 
-            const response = await fetch(`http://localhost:8000/analyze?symbol=${stockSymbol}&days=${days}`);
+            // Use your Render backend URL when deployed
+            const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${API_URL}/analyze?symbol=${stockSymbol}&days=${days}`);
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
