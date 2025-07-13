@@ -1,119 +1,152 @@
-import os, requests, datetime as dt
+import requests
+from datetime import datetime, timedelta
+import feedparser
 from typing import List, Tuple
-from xml.etree import ElementTree as ET
+import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables from my own doc
+load_dotenv('PersonalKeys.env')
 
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
-FINNHUB_KEY = os.getenv("FINNHUB_KEY", "")
-USER_AGENT = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+def get_headlines(symbol: str, days: int = 60) -> List[Tuple[str, datetime]]:
+    """Fetch news headlines for a given stock symbol."""
+    headlines_with_dates = []
 
-def fetch_newsapi_headlines(ticker: str, start: dt.date, end: dt.date) -> List[Tuple[str, dt.datetime]]:
-    if not NEWSAPI_KEY:
+    # Try Finnhub first
+    try:
+        headlines_with_dates.extend(get_finnhub_news(symbol, days))
+    except Exception as e:
+        print(f"Finnhub error: {e}")
+
+    # Try Google News RSS
+    try:
+        headlines_with_dates.extend(get_google_news(symbol, days))
+    except Exception as e:
+        print(f"Google News error: {e}")
+
+    # Tries NewsAPI but chilling if 426 kicks
+    try:
+        headlines_with_dates.extend(get_newsapi_headlines(symbol, days))
+    except Exception as e:
+        print(f"NewsAPI error: {e}")
+
+    # Remove dupes
+    unique_headlines = {}
+    for headline, date in headlines_with_dates:
+        if headline not in unique_headlines:
+            unique_headlines[headline] = date
+
+    sorted_headlines = sorted(unique_headlines.items(), key=lambda x: x[1], reverse=True)
+    return sorted_headlines
+
+def get_finnhub_news(symbol: str, days: int) -> List[Tuple[str, datetime]]:
+    """Fetch news from Finnhub."""
+    api_key = os.getenv('FINNHUB_KEY')
+    if not api_key:
+        print("Warning: FINNHUB_KEY not found in environment variables")
         return []
 
-    url = (f"https://newsapi.org/v2/everything?q={ticker}&from={start}&to={end}"
-           f"&language=en&pageSize=100&sortBy=publishedAt&apiKey={NEWSAPI_KEY}")
+    from_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    to_date = datetime.now().strftime('%Y-%m-%d')
+
+    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol}&from={from_date}&to={to_date}&token={api_key}"
 
     try:
         response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        js = response.json()
-
-        articles = []
-        for article in js.get("articles", []):
-            if article.get("title") and article.get("publishedAt"):
-                title = article["title"]
-                pub_date = article["publishedAt"].replace("Z", "+00:00")
-                pub_dt = dt.datetime.fromisoformat(pub_date).replace(tzinfo=None)
-                articles.append((title, pub_dt))
-
-        return articles
+        if response.status_code == 200:
+            data = response.json()
+            headlines = []
+            for article in data[:50]:  # Limit to 50 articles
+                if article.get('headline'):
+                    date = datetime.fromtimestamp(article['datetime'])
+                    headlines.append((article['headline'], date))
+            print(f"Found {len(headlines)} articles from Finnhub")
+            return headlines
+        else:
+            print(f"Finnhub API error: {response.status_code}")
     except Exception as e:
-        print(f"[NewsAPI] Error: {e}")
-        return []
+        print(f"Finnhub error: {e}")
 
-def fetch_finnhub_headlines(ticker: str, start: dt.date, end: dt.date) -> List[Tuple[str, dt.datetime]]:
-    if not FINNHUB_KEY:
-        return []
+    return []
 
-    url = (f"https://finnhub.io/api/v1/company-news?symbol={ticker}"
-           f"&from={start}&to={end}&token={FINNHUB_KEY}")
+def get_google_news(symbol: str, days: int) -> List[Tuple[str, datetime]]:
+    """Fetch news from Google News RSS feed."""
+    company_names = {
+        'AAPL': 'Apple',
+        'GOOGL': 'Google',
+        'MSFT': 'Microsoft',
+        'AMZN': 'Amazon',
+        'TSLA': 'Tesla',
+        'META': 'Meta',
+        'NVDA': 'NVIDIA',
+        'AMD': 'Advanced Micro Devices',
+        'ABBV': 'AbbVie',
+        'ABC': 'AmerisourceBergen',
+        'ABMD': 'Abiomed',
+        'ABNB': 'Airbnb',
+    }
+
+    query = company_names.get(symbol, symbol) + " stock"
+    url = f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
 
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        js = response.json()
+        feed = feedparser.parse(url)
+        headlines = []
+        cutoff_date = datetime.now() - timedelta(days=days)
 
-        articles = []
-        for article in js:
-            if article.get("headline") and article.get("datetime"):
-                title = article["headline"]
-                pub_dt = dt.datetime.fromtimestamp(article["datetime"])
-                articles.append((title, pub_dt))
+        for entry in feed.entries[:30]:  # Limit 30 articles
+            try:
+                pub_date = datetime(*entry.published_parsed[:6])
+                if pub_date >= cutoff_date:
+                    headlines.append((entry.title, pub_date))
+            except:
+                continue
 
-        return articles
+        print(f"Found {len(headlines)} articles from Google News")
+        return headlines
     except Exception as e:
-        print(f"[Finnhub] Error: {e}")
+        print(f"Google News error: {e}")
+
+    return []
+
+def get_newsapi_headlines(symbol: str, days: int) -> List[Tuple[str, datetime]]:
+    """Fetch news from NewsAPI."""
+    api_key = os.getenv('NEWSAPI_KEY')
+    if not api_key:
+        print("Warning: NEWSAPI_KEY not found in environment variables")
         return []
 
-def fetch_google_rss_headlines(ticker: str, days: int = 7) -> List[Tuple[str, dt.datetime]]:
-    url = (f"https://news.google.com/rss/search?q={ticker}+stock"
-           f"&hl=en-US&gl=US&ceid=US:en")
+    from_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        'q': symbol,
+        'from': from_date,
+        'sortBy': 'relevancy',
+        'apiKey': api_key,
+        'language': 'en'
+    }
 
     try:
-        response = requests.get(url, headers=USER_AGENT, timeout=10)
-        response.raise_for_status()
-        xml_content = response.text
+        response = requests.get(url, params=params, timeout=10)
 
-        root = ET.fromstring(xml_content)
-        items = root.findall(".//item")
+        # Handled 426
+        if response.status_code == 426:
+            print("NewsAPI requires upgrade to paid plan - skipping NewsAPI and using other sources")
+            return []
 
-        articles = []
-        cutoff_date = dt.datetime.now() - dt.timedelta(days=days)
-
-        for item in items:
-            title_elem = item.find("title")
-            pub_elem = item.find("pubDate")
-
-            if title_elem is not None and pub_elem is not None:
-                title = title_elem.text
-                pub_date_str = pub_elem.text
-
-                try:
-                    pub_dt = dt.datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %Z")
-
-                    if pub_dt >= cutoff_date:
-                        articles.append((title, pub_dt))
-                except ValueError:
-                    continue
-
-        return articles
+        if response.status_code == 200:
+            data = response.json()
+            headlines = []
+            for article in data.get('articles', [])[:30]:
+                if article.get('title') and article['title'] != '[Removed]':
+                    date = datetime.fromisoformat(article['publishedAt'].replace('Z', '+00:00'))
+                    headlines.append((article['title'], date))
+            print(f"Found {len(headlines)} articles from NewsAPI")
+            return headlines
+        else:
+            print(f"NewsAPI error: {response.status_code}")
     except Exception as e:
-        print(f"[GoogleRSS] Error: {e}")
-        return []
+        print(f"NewsAPI error: {e}")
 
-def get_headlines(ticker: str, days: int = 60) -> List[Tuple[str, dt.datetime]]:
-    end_date = dt.datetime.now()
-    start_date = end_date - dt.timedelta(days=days)
-
-    print(f"Fetching headlines for {ticker} from {start_date.date()} to {end_date.date()}")
-
-    articles = fetch_newsapi_headlines(ticker, start_date.date(), end_date.date())
-    if articles:
-        print(f"Found {len(articles)} articles from NewsAPI")
-        return articles
-
-    articles = fetch_finnhub_headlines(ticker, start_date.date(), end_date.date())
-    if articles:
-        print(f"Found {len(articles)} articles from Finnhub")
-        return articles
-
-    articles = fetch_google_rss_headlines(ticker, days=min(days, 30))
-    if articles:
-        print(f"Found {len(articles)} articles from Google RSS")
-        return articles
-
-    print(f"No articles found for {ticker}")
     return []
