@@ -10,3 +10,4 @@ python-dotenv
 lxml
 beautifulsoup4
 nltk
+feedparser
