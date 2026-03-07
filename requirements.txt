@@ -1,3 +1,4 @@
+mangum
 fastapi
 uvicorn[standard]
 yfinance
