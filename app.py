@@ -1,3 +1,4 @@
+from mangum import Mangum
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import date, timedelta
@@ -5,6 +6,7 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 from typing import Optional
+handler = Mangum(app)
 
 from scraper import get_headlines
 from sentiment import load_sentiment_model, classify_headlines
