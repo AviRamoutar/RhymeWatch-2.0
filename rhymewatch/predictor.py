@@ -16,9 +16,13 @@ import numpy as np
 import pandas as pd
 
 try:
-    import lightgbm as lgb
+    import lightgbm as lgb  # type: ignore[import-untyped]
     _HAS_LGBM = True
-except ImportError:
+except Exception:
+    # Catches ImportError (package missing) AND OSError (macOS libomp.dylib
+    # missing — LightGBM's shared library can't dlopen without `brew install
+    # libomp`). Either way we fall back to ridge-OLS so the app still runs.
+    lgb = None  # type: ignore[assignment]
     _HAS_LGBM = False
 
 from . import validation
