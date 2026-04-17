@@ -70,3 +70,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 reacturl.env
+
+# Local dev runner (personal convenience script)
+run_local.py
